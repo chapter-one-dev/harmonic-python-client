@@ -28,9 +28,9 @@ setup(
     ],
     python_requires=">=3.9",
     install_requires=[
-        "requests>=2.31.0",
-        "python-dotenv>=1.0.0",
-        "google-cloud-bigquery>=3.38.0",
+        "requests>=2.25.0",
+        "python-dotenv>=0.19.0",
+        "google-cloud-bigquery>=2.30.0",
     ],
     extras_require={
         "dev": [
