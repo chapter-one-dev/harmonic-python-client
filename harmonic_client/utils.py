@@ -1,7 +1,14 @@
 import os
 import json
+from pathlib import Path
 
 class HarmonicUtils:
+
+    @staticmethod
+    def get_package_data_path(filename: str) -> str:
+        """Get the absolute path to a file in the payload_data directory."""
+        package_dir = Path(__file__).parent
+        return str(package_dir / "payload_data" / filename)
     def __init__(self):
         pass
 
