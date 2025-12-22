@@ -16,6 +16,7 @@ import re
 from typing import Dict, Any, Optional, Tuple
 from pathlib import Path
 from google.cloud import bigquery
+from google.oauth2 import service_account
 from dotenv import load_dotenv
 
 # Load .env from harmonic_client directory
@@ -26,6 +27,26 @@ if env_path.exists():
 from harmonic_client.get_full_profile import HarmonicFullProfileClient
 
 
+def get_bigquery_client(project_id: str) -> bigquery.Client:
+    """
+    Create a BigQuery client with credentials from environment.
+    Supports both file-based credentials and JSON string credentials (for serverless).
+    """
+    # Check for JSON credentials in environment variable (for Vercel/serverless)
+    credentials_json = os.environ.get('GOOGLE_CREDENTIALS_JSON')
+    if credentials_json:
+        try:
+            credentials_info = json.loads(credentials_json)
+            credentials = service_account.Credentials.from_service_account_info(credentials_info)
+            return bigquery.Client(project=project_id, credentials=credentials)
+        except Exception as e:
+            print(f"Error parsing GOOGLE_CREDENTIALS_JSON: {e}")
+            raise
+
+    # Fall back to default credentials (local development with GOOGLE_APPLICATION_CREDENTIALS)
+    return bigquery.Client(project=project_id)
+
+
 class LinkedInToHarmonicLookup:
     """Looks up Harmonic data given a LinkedIn URL or ID"""
 
@@ -33,7 +54,7 @@ class LinkedInToHarmonicLookup:
     DATASET = "linkedin_internal"
 
     def __init__(self):
-        self.bq_client = bigquery.Client(project=self.PROJECT_ID)
+        self.bq_client = get_bigquery_client(self.PROJECT_ID)
         self.harmonic_client = HarmonicFullProfileClient()
 
     def extract_linkedin_id(self, url_or_id: str) -> str:
