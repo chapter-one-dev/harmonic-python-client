@@ -26,7 +26,7 @@ setup(
         "Programming Language :: Python :: 3.10",
         "Programming Language :: Python :: 3.11",
     ],
-    python_requires=">=3.10",
+    python_requires=">=3.9",
     install_requires=[
         "requests>=2.31.0",
         "python-dotenv>=1.0.0",
