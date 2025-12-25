@@ -74,3 +74,4 @@ Thumbs.db
 *.json
 !package.json
 search_output.json
+.vercel

@@ -205,9 +205,6 @@ class HarmonicClient:
         # Check for errors and notify if needed
         self._check_and_notify_error(response=response, data=data)
 
-        # Save response to JSON file
-        with open("harmonic_client/company_by_id_output.json", "w") as f:
-            json.dump(data, f, indent=2)
         return data
     
     def add_company_ids(self, query_data, new_ids):
