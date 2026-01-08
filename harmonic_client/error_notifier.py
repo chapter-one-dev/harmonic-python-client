@@ -8,6 +8,7 @@ class HarmonicErrorNotifier:
     """Handles sending Glue notifications for Harmonic API failures (once per day)"""
 
     GLUE_THREAD_ID = "thr_37BrUUDCQUG1ZVVwKdm5Oi1Un1M"
+    TOKEN_UPDATE_THREAD_URL = "https://app.glue.ai/inbox/thr_37KZXd2r1F8J4LOuBWnpROWRVs8"
 
     def __init__(self):
         self.messenger = None
@@ -35,7 +36,7 @@ class HarmonicErrorNotifier:
         today = datetime.now().strftime("%Y-%m-%d")
         unique_key = f"harmonic_auth_error_{today}"
 
-        message = f"Harmonic API authentication failed. The Bearer token may need to be refreshed.\n\nRefresh at: https://console.harmonic.ai"
+        message = f"Harmonic API authentication failed. The Bearer token may need to be refreshed.\n\nRefresh at: https://console.harmonic.ai\n\nFYI: Post the updated token to the [Token Update Thread]({self.TOKEN_UPDATE_THREAD_URL})"
 
         if error_details:
             message += f"\n\nError: {error_details}"
