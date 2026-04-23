@@ -428,33 +428,54 @@ class HarmonicToBigQuerySync:
 
         return row
 
-    def insert_education(self, rows: List[Dict]) -> int:
-        """Insert education rows into BigQuery"""
+    def _dml_insert(self, table_name: str, rows: List[Dict]) -> int:
+        """Insert rows via DML INSERT so they are immediately visible to SELECT queries.
+        Streaming inserts (insert_rows_json) sit in a buffer and bypass check_user_exists."""
         if not rows:
             return 0
 
-        table_ref = f"{self.PROJECT_ID}.{self.DATASET}.linkedin_education"
-        errors = self.bq_client.insert_rows_json(table_ref, rows)
+        cols = list(rows[0].keys())
+        col_list = ", ".join(f"`{c}`" for c in cols)
 
-        if errors:
-            print(f"Education insert errors: {errors}")
-            return 0
+        value_clauses = []
+        for row in rows:
+            vals = []
+            for c in cols:
+                v = row[c]
+                if v is None:
+                    vals.append("NULL")
+                elif isinstance(v, bool):
+                    vals.append("TRUE" if v else "FALSE")
+                elif isinstance(v, (int, float)):
+                    vals.append(str(v))
+                else:
+                    escaped = str(v).replace("\\", "\\\\").replace("'", "\\'")
+                    vals.append(f"'{escaped}'")
+            value_clauses.append(f"({', '.join(vals)})")
 
+        dml = (
+            f"INSERT INTO `{self.PROJECT_ID}.{self.DATASET}.{table_name}` ({col_list})\n"
+            f"VALUES {', '.join(value_clauses)}"
+        )
+        job = self.bq_client.query(dml)
+        job.result()
         return len(rows)
+
+    def insert_education(self, rows: List[Dict]) -> int:
+        """Insert education rows into BigQuery"""
+        try:
+            return self._dml_insert("linkedin_education", rows)
+        except Exception as e:
+            print(f"Education insert errors: {e}")
+            return 0
 
     def insert_experience(self, rows: List[Dict]) -> int:
         """Insert experience rows into BigQuery"""
-        if not rows:
+        try:
+            return self._dml_insert("linkedin_experience", rows)
+        except Exception as e:
+            print(f"Experience insert errors: {e}")
             return 0
-
-        table_ref = f"{self.PROJECT_ID}.{self.DATASET}.linkedin_experience"
-        errors = self.bq_client.insert_rows_json(table_ref, rows)
-
-        if errors:
-            print(f"Experience insert errors: {errors}")
-            return 0
-
-        return len(rows)
 
     def insert_profile(self, row: Dict) -> int:
         """Insert profile row into BigQuery"""
