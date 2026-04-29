@@ -40,6 +40,17 @@ class HarmonicFullProfileClient:
         }
         self.error_notifier = HarmonicErrorNotifier()
 
+    @staticmethod
+    def _is_not_found_error(errors: list) -> bool:
+        """Return True if the GraphQL errors indicate a 404 / person-not-found condition."""
+        for err in errors:
+            if "not found" in str(err.get("message", "")).lower():
+                return True
+            status = (err.get("extensions") or {}).get("response", {}).get("status")
+            if status == 404:
+                return True
+        return False
+
     def _make_request(self, operation_name: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Make a GraphQL request to Harmonic API"""
         url = f"{self.BASE_URL}?{operation_name}"
@@ -56,12 +67,17 @@ class HarmonicFullProfileClient:
 
         # Check for GraphQL errors
         if "errors" in data:
-            error_str = json.dumps(data["errors"])[:500]
-            auth_keywords = ["unauthorized", "unauthenticated", "token", "expired", "forbidden"]
-            if any(kw in error_str.lower() for kw in auth_keywords):
-                self.error_notifier.notify_auth_failure(error_str)
+            errors = data["errors"]
+            if self._is_not_found_error(errors):
+                # Stale ID from typeahead — person deleted from Harmonic, not actionable
+                pass
             else:
-                self.error_notifier.notify_api_error("GraphQL Error", error_str)
+                error_str = json.dumps(errors)[:500]
+                auth_keywords = ["unauthorized", "unauthenticated", "token", "expired", "forbidden"]
+                if any(kw in error_str.lower() for kw in auth_keywords):
+                    self.error_notifier.notify_auth_failure(error_str)
+                else:
+                    self.error_notifier.notify_api_error("GraphQL Error", error_str)
 
         return data
 
@@ -107,6 +123,8 @@ query GetPersonEducation($id: Int!) {
         data = self._make_request("GetPersonEducation", payload)
 
         if "errors" in data:
+            if self._is_not_found_error(data["errors"]):
+                return []
             raise Exception(f"GraphQL errors: {data['errors']}")
 
         result = data.get("data", {}).get("getPersonById", {})
@@ -246,6 +264,8 @@ query GetPersonExperience($id: Int!) {
         data = self._make_request("GetPersonExperience", payload)
 
         if "errors" in data:
+            if self._is_not_found_error(data["errors"]):
+                return []
             raise Exception(f"GraphQL errors: {data['errors']}")
 
         result = data.get("data", {}).get("getPersonById", {})
@@ -261,6 +281,19 @@ query GetPersonExperience($id: Int!) {
         Returns:
             List of highlight category strings
         """
+        result = self.get_person_basic_info(person_id)
+        return result.get("highlights", [])
+
+    def get_person_basic_info(self, person_id: int) -> Dict[str, Any]:
+        """
+        Get basic person info including name, LinkedIn URL, and highlights.
+
+        Args:
+            person_id: The Harmonic person ID
+
+        Returns:
+            Dictionary with fullName, linkedinUrl, and highlights
+        """
         payload = {
             "operationName": "GetPersonProfileHeader",
             "variables": {"id": person_id},
@@ -268,6 +301,13 @@ query GetPersonExperience($id: Int!) {
   getPersonById(id: $id) {
     id
     fullName
+    socials {
+      linkedin {
+        url
+        __typename
+      }
+      __typename
+    }
     highlights {
       category
       text
@@ -281,13 +321,22 @@ query GetPersonExperience($id: Int!) {
         data = self._make_request("GetPersonProfileHeader", payload)
 
         if "errors" in data:
-            return []
+            return {"fullName": None, "linkedinUrl": None, "highlights": []}
 
         person = data.get("data", {}).get("getPersonById", {})
         highlights = person.get("highlights", [])
-        # Return deduplicated category names
         categories = [h.get("category", "") for h in highlights if h.get("category")]
-        return list(dict.fromkeys(categories))
+
+        # Extract LinkedIn URL
+        socials = person.get("socials", {})
+        linkedin = socials.get("linkedin", {}) if socials else {}
+        linkedin_url = linkedin.get("url") if linkedin else None
+
+        return {
+            "fullName": person.get("fullName"),
+            "linkedinUrl": linkedin_url,
+            "highlights": list(dict.fromkeys(categories))
+        }
 
     def get_full_profile(self, person_id: int) -> Dict[str, Any]:
         """
@@ -298,23 +347,30 @@ query GetPersonExperience($id: Int!) {
 
         Returns:
             Dictionary containing all profile data:
+            - fullName: person's full name
+            - linkedinUrl: LinkedIn profile URL
             - highlights: list of highlight categories (e.g., "Top University")
             - education: list of education entries
             - experience: list of work experience entries (includes company details)
         """
         profile = {
             "person_id": person_id,
+            "fullName": None,
+            "linkedinUrl": None,
             "highlights": [],
             "education": [],
             "experience": [],
             "errors": []
         }
 
-        # Get highlights
+        # Get basic info (name, LinkedIn, highlights)
         try:
-            profile["highlights"] = self.get_person_highlights(person_id)
+            basic_info = self.get_person_basic_info(person_id)
+            profile["fullName"] = basic_info.get("fullName")
+            profile["linkedinUrl"] = basic_info.get("linkedinUrl")
+            profile["highlights"] = basic_info.get("highlights", [])
         except Exception as e:
-            profile["errors"].append(f"Highlights: {str(e)}")
+            profile["errors"].append(f"Basic info: {str(e)}")
 
         # Get education
         try:
