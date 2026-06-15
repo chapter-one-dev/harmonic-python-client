@@ -10,6 +10,26 @@ class HarmonicErrorNotifier:
     GLUE_THREAD_ID = "thr_37BrUUDCQUG1ZVVwKdm5Oi1Un1M"
     TOKEN_UPDATE_THREAD_URL = "https://app.glue.ai/inbox/thr_37KZXd2r1F8J4LOuBWnpROWRVs8"
 
+    # Harmonic-side infrastructure failures. These surface as GraphQL errors
+    # but are NOT auth problems (the token is fine) — refreshing it does
+    # nothing. Callers keyword-match on "token"/"invalid"/etc., so a transient
+    # 5xx / connection error from Harmonic's own backend can be misrouted to
+    # notify_auth_failure(). We catch that here and downgrade to a plain API
+    # error so no one is told to refresh a perfectly valid token.
+    SERVER_ERROR_KEYWORDS = [
+        "internal_server_error", "econnrefused", "etimedout", "econnreset",
+        "network timeout", "socket hang up", "bad gateway",
+        "service unavailable", "gateway timeout", "502", "503", "504",
+    ]
+
+    @classmethod
+    def _looks_like_server_error(cls, error_details: str) -> bool:
+        """True if the error text clearly indicates a Harmonic-side outage."""
+        if not error_details:
+            return False
+        low = error_details.lower()
+        return any(kw in low for kw in cls.SERVER_ERROR_KEYWORDS)
+
     def __init__(self):
         self.messenger = None
         try:
@@ -29,6 +49,13 @@ class HarmonicErrorNotifier:
         Returns:
             True if notification was sent/attempted, False otherwise
         """
+        # Don't cry "refresh the token" for a Harmonic-side outage. Callers'
+        # broad keyword matching ("token"/"invalid"/...) can misclassify a
+        # transient 5xx / connection error as an auth failure; route those to
+        # the neutral API-error notifier instead.
+        if self._looks_like_server_error(error_details):
+            return self.notify_api_error("GraphQL Error", error_details)
+
         if not self.messenger:
             print("Harmonic auth error detected but Glue messenger not available")
             return False
